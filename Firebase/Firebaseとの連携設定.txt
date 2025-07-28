@@ -1,0 +1,58 @@
+Firebaseとの連携設定
+まず、Next.jsプロジェクトでFirebaseを使えるように設定します。
+
+Firebase SDKのインストール:
+ターミナルで以下のコマンドを実行します。
+
+Bash
+
+npm install firebase
+Firebase設定ファイルの作成:
+Firebaseプロジェクトの設定情報（APIキーなど）を安全に管理するためのファイルを作成します。場所はプロジェクトのルートに lib や firebase といったフォルダを作って、その中に入れるのが一般的です。
+
+ポイント: APIキーなどを直接コードに書き込むのは危険です。環境変数（.env.local）を使いましょう。
+
+.env.local ファイル (プロジェクトのルートに作成)
+
+NEXT_PUBLIC_FIREBASE_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# ... 他のキーも同様に
+Next.jsでは、ブラウザで利用する環境変数の頭に NEXT_PUBLIC_ をつけるルールがあります。
+
+lib/firebase.ts (設定を初期化するファイル)
+
+TypeScript
+
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+};
+
+// Vercelにデプロイした際などに再初期化されるのを防ぐ
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+export const db = getFirestore(app);
+Firestoreからデータを取得してコンポーネントに表示する
+以前作成した ProductRankingSection.tsx で、固定データ（ダミーデータ）の代わりに、選択されたカテゴリーに応じてFirestoreから商品データを取得するように改修します。
+
+データの取得は、ユーザーのアクション（カテゴリーのクリック）に応じて行われるため、クライアントサイドでのデータ取得が適しています。Reactの useEffect フックを使うのが一般的です。
+
+Vercelへのデプロイ
+Vercelへのデプロイは非常に簡単です。
+
+GitHubなどのリポジトリとVercelアカウントを連携します。
+
+Vercelのプロジェクト設定画面で、.env.local に書いた環境変数をすべて登録します。 これを忘れると、デプロイしたアプリがFirebaseに接続できずエラーになります。
+
+これだけで、Gitにプッシュするたびに自動でビルドとデプロイが実行されます。
+
+次のステップとして
+まずは Firebaseのセットアップ と、カテゴリー選択に応じたデータ取得（上記の useEffect の部分） から試してみてはいかがでしょうか？

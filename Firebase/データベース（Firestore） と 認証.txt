@@ -1,0 +1,235 @@
+Firebase の **データベース（Firestore）** と **認証（Authentication）** を **Next.js（TypeScript、React）** に統合する方法を、ステップバイステップで詳しく解説します。
+
+---
+
+## 🔧 前提環境
+
+* Node.js（v16以上）
+* Next.js（13 以降推奨）
+* TypeScript
+* Firebase プロジェクト（作成済み）
+
+---
+
+## 🧱 1. Firebase プロジェクト作成と設定
+
+1. [Firebase コンソール](https://console.firebase.google.com/)で新規プロジェクト作成
+2. 「Web アプリを追加」から Web 用アプリ登録
+3. `firebaseConfig` が表示されるので控えておく
+
+---
+
+## 📦 2. 必要なパッケージをインストール
+
+```bash
+npm install firebase
+```
+
+---
+
+## 📁 3. Firebase 初期化ファイルの作成
+
+`lib/firebase.ts`
+
+```ts
+// lib/firebase.ts
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
+};
+
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+export { auth, db };
+```
+
+`.env.local` に環境変数を追加:
+
+```
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+```
+
+---
+
+## 🔐 4. Firebase 認証機能の追加（ログイン／ログアウト）
+
+例：Email/Password 認証（Google認証も可能）
+
+### `hooks/useAuth.ts`（カスタムフック）
+
+```ts
+import { useEffect, useState } from 'react';
+import { auth } from '../lib/firebase';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  User,
+} from 'firebase/auth';
+
+export function useAuth() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const signup = (email: string, password: string) =>
+    createUserWithEmailAndPassword(auth, email, password);
+
+  const login = (email: string, password: string) =>
+    signInWithEmailAndPassword(auth, email, password);
+
+  const logout = () => signOut(auth);
+
+  return { user, loading, login, signup, logout };
+}
+```
+
+---
+
+## 🧪 5. 認証を使ったコンポーネント例
+
+### `pages/login.tsx`
+
+```tsx
+import { useState } from 'react';
+import { useAuth } from '../hooks/useAuth';
+import { useRouter } from 'next/router';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const { login, user } = useAuth();
+  const router = useRouter();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await login(email, password);
+      router.push('/dashboard');
+    } catch (err) {
+      alert('ログインに失敗しました');
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input type="email" onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
+      <input type="password" onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
+      <button type="submit">ログイン</button>
+    </form>
+  );
+}
+```
+
+---
+
+## 🔥 6. Firestore（データベース）との連携
+
+### データの追加・取得サンプル
+
+```ts
+// Firestore にドキュメント追加
+import { collection, addDoc, getDocs } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+
+// データ追加
+await addDoc(collection(db, 'tasks'), {
+  title: 'New Task',
+  createdAt: new Date(),
+});
+
+// データ取得
+const querySnapshot = await getDocs(collection(db, 'tasks'));
+querySnapshot.forEach((doc) => {
+  console.log(doc.id, doc.data());
+});
+```
+
+---
+
+## 🧭 7. 認証ガード（ログイン必須ページ）
+
+```tsx
+// components/AuthGuard.tsx
+import { useAuth } from '../hooks/useAuth';
+import { useRouter } from 'next/router';
+import { useEffect } from 'react';
+
+export default function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading]);
+
+  if (loading || !user) return <p>Loading...</p>;
+  return <>{children}</>;
+}
+```
+
+使い方：
+
+```tsx
+// pages/dashboard.tsx
+import AuthGuard from '../components/AuthGuard';
+
+export default function DashboardPage() {
+  return (
+    <AuthGuard>
+      <h1>ダッシュボード（ログイン済ユーザーのみ表示）</h1>
+    </AuthGuard>
+  );
+}
+```
+
+---
+
+## ✅ まとめ
+
+| 機能                 | 実装済 |
+| ------------------ | --- |
+| Firebase 認証        | ✅   |
+| Firestore データ保存・取得 | ✅   |
+| 認証ガード              | ✅   |
+| TypeScript 対応      | ✅   |
+
+---
+
+## 📌 補足
+
+* Google認証などの他のプロバイダにも簡単に対応できます。
+* Firestore のセキュリティルールは忘れずに設定してください（例：`request.auth != null` など）。
+* SSR や Server Actions（Next.js 14以降）との統合も可能です。
+
+---
+
+もし「Google 認証を使いたい」「SSRでユーザーを認識したい」「Cloud Functions と組み合わせたい」など、特定の要望があれば、そこに特化して詳しく解説できます！
+
+必要であればそのまま続けてください 🙌

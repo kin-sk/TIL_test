@@ -1,0 +1,189 @@
+本番、開発のDockerfile
+ここでは **Spring Boot (backend)** と **Next.js (frontend)** の両方に対して：
+
+---
+
+# ✅ **開発用 / 本番用 Dockerfile 分離サンプル & マルチステージビルド**
+
+---
+
+## 🟡 **Spring Boot (Backend)**
+
+### 📁 ディレクトリ構成（例）
+
+```
+backend/
+├── dev.Dockerfile
+├── prod.Dockerfile
+├── mvnw
+├── pom.xml
+└── src/
+```
+
+---
+
+### 🔧 `dev.Dockerfile`（開発用）
+
+```Dockerfile
+FROM openjdk:17-jdk-slim
+
+# 作業ディレクトリ
+WORKDIR /app
+
+# Gitなどの開発ツールをインストール（必要に応じて）
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Mavenのラッパーと依存定義を先にコピー（依存キャッシュ）
+COPY .mvn/ .mvn
+COPY mvnw pom.xml ./
+RUN chmod +x mvnw && ./mvnw dependency:go-offline
+
+# 残りのコードをコピー
+COPY src ./src
+
+# EXPOSE ポート（開発で使う場合）
+EXPOSE 8080
+
+# デフォルトコマンド（手動起動前提なら sleep）
+CMD ["sleep", "infinity"]
+```
+
+---
+
+### 📦 `prod.Dockerfile`（本番用 / マルチステージ）
+
+```Dockerfile
+# --- Build Stage ---
+FROM maven:3.9.6-eclipse-temurin-17 as builder
+WORKDIR /build
+COPY .mvn/ .mvn
+COPY mvnw pom.xml ./
+RUN chmod +x mvnw && ./mvnw dependency:go-offline
+COPY src ./src
+RUN ./mvnw clean package -DskipTests
+
+# --- Runtime Stage ---
+FROM eclipse-temurin:17-jdk-alpine
+WORKDIR /app
+COPY --from=builder /build/target/*.jar ./app.jar
+
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+---
+
+## 🔵 **Next.js (Frontend)**
+
+### 📁 ディレクトリ構成（例）
+
+```
+frontend/
+├── dev.Dockerfile
+├── prod.Dockerfile
+├── package.json
+├── next.config.js
+└── ...
+```
+
+---
+
+### 🔧 `dev.Dockerfile`（開発用）
+
+```Dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+# 開発に必要なツール
+RUN apk add --no-cache git
+
+# 依存関係のインストール
+COPY package.json package-lock.json ./
+RUN npm install
+
+# アプリのコピー
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]
+```
+
+---
+
+### 📦 `prod.Dockerfile`（本番用 / マルチステージ）
+
+```Dockerfile
+# --- Build Stage ---
+FROM node:18-alpine as builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# --- Runtime Stage ---
+FROM node:18-alpine
+WORKDIR /app
+COPY --from=builder /app/.next .next
+COPY --from=builder /app/public public
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules node_modules
+COPY --from=builder /app/next.config.js ./
+
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+---
+
+## ✅ `docker-compose.yml` 側で指定の切替例（dev/prod）
+
+```yaml
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: dev.Dockerfile  # ← 本番時は prod.Dockerfile に変更
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: dev.Dockerfile  # ← 本番時は prod.Dockerfile に変更
+    ports:
+      - "3000:3000"
+```
+
+---
+
+## ✅ おまけ：`.dockerignore` を用意しよう
+
+`backend/.dockerignore` 例：
+
+```
+target/
+.idea/
+*.iml
+*.log
+```
+
+`frontend/.dockerignore` 例：
+
+```
+node_modules/
+.next/
+*.log
+```
+
+---
+
+## 💬 ご希望があれば
+
+* `Makefile` や `build.sh` を使った開発/本番切り替え自動化
+* GitHub Actions などで CI 対応したビルド
+
+なども追加できます！必要に応じてお気軽にどうぞ。
